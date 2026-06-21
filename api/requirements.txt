@@ -1,0 +1,9 @@
+fastapi
+uvicorn
+selenium
+bs4
+groq
+pydantic
+python-multipart
+email-validator
+webdriver-manager
