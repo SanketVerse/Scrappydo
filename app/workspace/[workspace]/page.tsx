@@ -15,7 +15,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import ScrapingSchedule from "./schedule";
 import EmailTrigger from "../triggers";
-import { supabase } from "@/lib/supabaseClient";
+
 declare global {
     interface Window {
         scrapeTimeoutId?: number;
@@ -35,7 +35,6 @@ const Index = () => {
     const [userPrompt, setUserPrompt] = useState("");
     const [chatMessages, setChatMessages] = useState<{ role: string; content: string }[]>([]);
     const [isScraped, setIsScraped] = useState(false);
-    const [userId, setUserId] = useState<string | null>(null);
     const [storageError, setStorageError] = useState<string | null>(null);
     // Add these new state variables near your other useState declarations
     const [scheduleInfo, setScheduleInfo] = useState<{
@@ -53,29 +52,18 @@ const Index = () => {
     const parts = pathname?.split("/") || [];
     const workspaceName = parts[2] || "Workspace"; // Extracts "News" from "/workspace/News"
 
-    const fetchStoredUrl = async () => {
-        if (!userId) return;
-
+    const fetchStoredUrl = () => {
         try {
-            const path = `${userId}/${workspaceName}/urls.txt`;
-            const { data, error } = await supabase.storage.from('scrappydo').download(path);
-
-            if (error) {
-                console.log("No stored URL found for this workspace.");
-                return;
-            }
-
-            if (data) {
-                const storedUrl = await data.text();
-                setUrl(storedUrl.trim()); // Triggers useEffect, which calls handleScrape()
-
+            const storedUrl = localStorage.getItem(`scrappydo_url_${workspaceName}`);
+            if (storedUrl) {
+                setUrl(storedUrl.trim());
             }
         } catch (err) {
             console.error("Error fetching stored URL:", err);
         }
     };
 
-    // Check scrape status and get user ID on page load
+    // Check scrape status on page load
     useEffect(() => {
         const checkScrapeStatus = async () => {
             try {
@@ -97,29 +85,8 @@ const Index = () => {
     }, []);
 
     useEffect(() => {
-        const getCurrentUser = async () => {
-            try {
-                const { data, error } = await supabase.auth.getUser();
-                if (error) {
-                    console.error("Error getting user:", error);
-                    return;
-                }
-                if (data && data.user) {
-                    setUserId(data.user.id);
-                }
-            } catch (error) {
-                console.error("Error checking user:", error);
-            }
-        };
-
-        getCurrentUser();
-    }, []);
-
-    useEffect(() => {
-        if (userId) {
-            fetchStoredUrl();
-        }
-    }, [userId, workspaceName]); // Fetch URL when user ID or workspace changes
+        fetchStoredUrl();
+    }, [workspaceName]); // Fetch URL when workspace changes
 
     useEffect(() => {
         const theme = localStorage.getItem("theme");
@@ -129,32 +96,10 @@ const Index = () => {
         }
     }, []);
 
-    // Function to save URL to Supabase storage
-    const saveUrlToStorage = async (urlToSave: string) => {
-        if (!userId) {
-            console.log("No user ID available");
-            setStorageError("User not authenticated. Cannot save URL.");
-            return false;
-        }
-
+    // Function to save URL to LocalStorage
+    const saveUrlToStorage = (urlToSave: string) => {
         try {
-            const path = `${userId}/${workspaceName}/urls.txt`;
-
-            // Overwrite the file with only the new URL
-            const { data, error: uploadError } = await supabase.storage
-                .from('scrappydo')
-                .upload(path, new Blob([urlToSave]), {
-                    upsert: true, // This ensures the file is replaced
-                    contentType: 'text/plain'
-                });
-
-            if (uploadError) {
-                console.error("Error saving URL to storage:", uploadError);
-                setStorageError(`Failed to save URL to storage: ${uploadError.message}`);
-                return false;
-            }
-
-            // console.log("URL saved successfully to urls.txt");
+            localStorage.setItem(`scrappydo_url_${workspaceName}`, urlToSave);
             setStorageError(null);
             return true;
         } catch (error) {
@@ -165,21 +110,12 @@ const Index = () => {
     };
 
     const handleScrape = async () => {
-        // console.log("scrapping", url , "this url")
         if (!url) return;
         setIsScraping(true);
 
-        // Wait for userId to be set before proceeding
-        if (!userId) {
-            console.log("Waiting for userId...");
-            while (!userId) {
-                await new Promise(resolve => setTimeout(resolve, 100)); // Wait 100ms
-            }
-        }
-
         try {
-            // First save the URL to storage
-            const savedToStorage = await saveUrlToStorage(url);
+            // First save the URL to local storage
+            saveUrlToStorage(url);
 
             // Proceed with scraping
             const response = await fetch(`${API_BASE_URL}/scrape`, {
@@ -422,8 +358,8 @@ const Index = () => {
 
     // Add this effect to restore schedules from localStorage when the component mounts
     useEffect(() => {
-        if (userId && workspaceName) {
-            const key = `scrape-schedule-${userId}-${workspaceName}`;
+        if (workspaceName) {
+            const key = `scrape-schedule-${workspaceName}`;
             const savedSchedule = localStorage.getItem(key);
 
             if (savedSchedule) {
@@ -442,7 +378,7 @@ const Index = () => {
                 }
             }
         }
-    }, [userId, workspaceName]);
+    }, [workspaceName]);
 
     return (
         <div className="min-h-screen bg-background relative overflow-hidden">
@@ -547,14 +483,12 @@ const Index = () => {
                                 // });
 
                                 // Save to localStorage for persistence across page refreshes
-                                if (userId) {
-                                    const key = `scrape-schedule-${userId}-${workspaceName}`;
-                                    localStorage.setItem(key, JSON.stringify({
-                                        url,
-                                        ...scheduleData,
-                                        startDate: scheduleData.startDate.toISOString()
-                                    }));
-                                }
+                                const key = `scrape-schedule-${workspaceName}`;
+                                localStorage.setItem(key, JSON.stringify({
+                                    url,
+                                    ...scheduleData,
+                                    startDate: scheduleData.startDate.toISOString()
+                                }));
                             }}
                         />
                     </div>
